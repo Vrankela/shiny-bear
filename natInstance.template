@@ -7,7 +7,7 @@
     "KeyName": {
       "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instance",
       "Type": "AWS::EC2::KeyPair::KeyName",
-	  "Default" : "Backend Access",
+      "Default" : "Backend Access",
       "ConstraintDescription" : "must be the name of an existing EC2 KeyPair."
     },
 
@@ -29,13 +29,13 @@
 	  "Type": "String",
 	  "ConstraintDescription" : "must be the subnet id of an existing subnet"
 	},
-    "SFTPForwardPort" : {
+    "ForwardPort" : {
 	  "Description" : "The port that should be NATed",
 	  "Type": "String",
 	  "Default": "22",
 	  "ConstraintDescription" : "must be a port"
 	},
-    "SFTPForwardHost" : {
+    "ForwardHost" : {
 	  "Description" : "The host to which to forward the port",
 	  "Type": "String",
 	  "ConstraintDescription" : "must be an IP not host name"
@@ -47,8 +47,8 @@
 	  "ConstraintDescription" : "must be a port not in use"
 	},
 	
-    "InstanceSecurityGroup" : {
-	  "Description" : "The subnet ID that the instance will be created in",
+    "SecurityGroup" : {
+	  "Description" : "The security group ID that the instance will be created in",
 	  "Type": "String",
 	  "ConstraintDescription": "must be the id of an existing security group"
 	}
@@ -123,9 +123,9 @@
       "Type" : "AWS::EC2::Instance",
       "Properties" : {
         "InstanceType" : { "Ref" : "InstanceType" },
-        "SecurityGroupIds" : [ { "Ref" : "InstanceSecurityGroup" } ],
-		"SubnetId": { "Ref" : "InstanceSubnet" },
-		"IamInstanceProfile" : { "Ref" : "NATRoleProfile" },
+        "SecurityGroupIds" : [ { "Ref" : "SecurityGroup" } ],
+	"SubnetId": { "Ref" : "InstanceSubnet" },
+	"IamInstanceProfile" : { "Ref" : "NATRoleProfile" },
         "KeyName" : { "Ref" : "KeyName" },
 		"Tags"         : [
                     {
@@ -137,7 +137,7 @@
                           { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
 
  
-		"UserData": {
+	"UserData": {
 			"Fn::Base64": {
 				"Fn::Join": ["",
 				["#!/bin/bash -v\n",
@@ -154,9 +154,9 @@
 				"EOF\n",
 
 				"/sbin/iptables -t nat -A PREROUTING -p tcp --dport ",
-				{ "Ref" : "SFTPForwardPort" },
+				{ "Ref" : "ForwardPort" },
 				" -j DNAT --to-destination ",
-				{ "Ref" : "SFTPForwardHost" },
+				{ "Ref" : "ForwardHost" },
 				"\n",
 				"/sbin/iptables-save > /etc/sysconfig/iptables\n",
 				"#Change ssh port\n",
