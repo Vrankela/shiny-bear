@@ -52,9 +52,10 @@ param (
     [string]$NATStackName = "NATInstance"
     [string]$EnvType = "Prod"
     [string]$InstanceType = "t2.micro",
-    [string]SSHPort = "5022",
-    [string]ForwardPort = "22",
-
+    [string]$SSHPort = "5022",
+    [string]$ForwardPort = "22",
+    [string]$VpcCidr,
+    [string]$VPC,
 )
 BEGIN {}
 PROCESS {
@@ -68,6 +69,8 @@ PROCESS {
 		    @{ ParameterKey="SecurityGroup";ParameterValue=$KSecurityGroup },
 		    @{ ParameterKey="ForwardHost";ParameterValue=$ForwardHost },
 		    @{ ParameterKey="InstanceSubnet";ParameterValue=$SubnetID },
+		    @{ ParameterKey="VpcCidr";ParameterValue=$VpcCidr },
+		    @{ ParameterKey="VPC";ParameterValue=$VPC },
 		    @{ ParameterKey="ForwardPort";ParameterValue=$ForwardPort }
 		    
 		) -Tags @( @{Key="EnvType";Value=$EnvType } )
