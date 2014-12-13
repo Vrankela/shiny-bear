@@ -4,6 +4,18 @@
   "Description" : "NAT instance to provide access for instances in private subnets to the internet.  This is a requirement for Elastic Beanstalk instances in private subnets.  In addition, it creates a NAT redirection to a specified IP of a specific port - sftp by default.  After creation, you need to update the routing table for it to start being used.",
 
   "Parameters" : {
+    "VpcCidr": {
+      "Description" : "CIDR that can access this instance",
+      "Type": "string",
+      "Default" : "172.16.0.0/16",
+      "ConstraintDescription" : "must be a CIDR block like 172.16.0.0/16."
+
+    },
+    "VPC" : {
+      "Description" : "VPC ID in which to create security group",
+      "Type": "string",
+      "ConstraintDescription" : "must be the ID of an existing VPC."
+    }
     "KeyName": {
       "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instance",
       "Type": "AWS::EC2::KeyPair::KeyName",
@@ -174,7 +186,31 @@
 
 
 	  }
+    },
+    "NATSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Rules for allowing access to HA Nodes",
+        "VpcId" : { "Ref" : "VPC" },
+        "SecurityGroupIngress" : [
+           { "IpProtocol" : "tcp", "FromPort" : "22",  "ToPort" : "22",  "CidrIp" : "0.0.0.0/0" } ,
+           { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : { "Ref" : "VpcCidr" }} ],
+        "SecurityGroupEgress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : "0.0.0.0/0" } ]
+      }
+    },
+
+    "NATAllowICMP" : {
+      "Type" : "AWS::EC2::SecurityGroupIngress",
+      "Properties" : {
+        "GroupId" : { "Ref" : "NATSecurityGroup" },
+        "IpProtocol" : "icmp", 
+	"FromPort" : "-1",  
+	"ToPort" : "-1",  
+	"SourceSecurityGroupId" : { "Ref" : "NATSecurityGroup" }
+      }
     }
+
   },
 
   "Outputs" : {
