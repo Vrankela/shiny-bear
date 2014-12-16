@@ -193,30 +193,22 @@
         "GroupDescription" : "Rules for allowing access to HA Nodes",
         "VpcId" : { "Ref" : "VPC" },
         "SecurityGroupIngress" : [
-           { "IpProtocol" : "tcp", "FromPort" : "22",  "ToPort" : "22",  "CidrIp" : "0.0.0.0/0" } ,
+           { "IpProtocol" : "tcp", "FromPort" : {"Ref" : "ForwardPort" },  "ToPort" : {"Ref" : "ForwardPort" },  "CidrIp" : "0.0.0.0/0" } ,
            { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : { "Ref" : "VpcCidr" }} ],
         "SecurityGroupEgress" : [
            { "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : "0.0.0.0/0" } ]
       }
-    },
-
-    "NATAllowICMP" : {
-      "Type" : "AWS::EC2::SecurityGroupIngress",
-      "Properties" : {
-        "GroupId" : { "Ref" : "NATSecurityGroup" },
-        "IpProtocol" : "icmp", 
-	"FromPort" : "-1",  
-	"ToPort" : "-1",  
-	"SourceSecurityGroupId" : { "Ref" : "NATSecurityGroup" }
-      }
     }
-
   },
 
   "Outputs" : {
     "InstanceId" : {
       "Description" : "InstanceId of the newly created EC2 instance",
       "Value" : { "Ref" : "NATInstance" }
+    },
+    "ServerName": {
+      "Description" : "Name tag of EC2 instance",
+      "Value" : { "Ref" : "ServerName" }
     },
     "AZ" : {
       "Description" : "Availability Zone of the newly created EC2 instance",
