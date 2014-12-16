@@ -22,7 +22,7 @@ URL of a compatible Cloudformation template.
 
 .NOTES
 
-Ensure you have the correct
+Ensure you have the correct rights.  
 
 #>
 
@@ -46,23 +46,26 @@ param (
     [parameter(Mandatory=$true,ValueFromPipeline=$true)]
     [string]$PrivateRouteTable,
                            
-    [parameter(Mandatory=$true,ValueFromPipeline=$true)]
-    [string]$ForwardHost,
+    
+    [string]$ForwardHost = "172.16.0.1",
 
-    [string]$NATStackName = "NATInstance"
-    [string]$EnvType = "Prod"
+    [string]$NATStackName = "NATInstance",
+    [string]$EnvType = "Prod",
     [string]$InstanceType = "t2.micro",
     [string]$SSHPort = "5022",
     [string]$ForwardPort = "22",
     [string]$VpcCidr,
     [string]$VPC,
+    [switch]$NoRouteUpdate,
+    [switch]$RouteUpdateOnly
 )
 BEGIN {}
 PROCESS {
-	# Check if the instance exists - can't create another
-	if (Get-CFNStack | ? { $_.StackName -eq $NATStackName} ) { $NATStackName = $NATStackName + "2" }
+	if (!$RouteUpdateOnly) {
+	   # Check if the instance exists - can't create another
+	   if (Get-CFNStack | ? { $_.StackName -eq $NATStackName} ) { $NATStackName = $NATStackName + "2" }
 
-	New-CFNStack -StackName $NATStackName -TemplateURL $NATtemplateURL -Parameters @(
+	   New-CFNStack -StackName $NATStackName -TemplateURL $NATtemplateURL -Parameters @(
 		    @{ ParameterKey="ServerName";ParameterValue=$NATStackName },
 		    @{ ParameterKey="InstanceType";ParameterValue=$InstanceType },
 		    @{ ParameterKey="KeyName";ParameterValue=$KeyName },
@@ -76,29 +79,35 @@ PROCESS {
 		) -Tags @( @{Key="EnvType";Value=$EnvType } )
 
 
-	# Wait on completion
-		while ((Get-CFNStack -StackName $NATStackName).StackStatus -notlike "CREATE_COMPLETE") {
+		# Wait on completion
+	   while ((Get-CFNStack -StackName $NATStackName).StackStatus -notlike "CREATE_COMPLETE") {
 		    sleep 30
 		    if ((Get-CFNStack -StackName $NATStackName).StackStatus -like "ROLLBACK*") {
 		        Throw "System rolling back"
 		    }
+	   }
+	   Write-Host "Stack created"
+	}
+	if (!$NoRouteUpdate) {
+		# Replace EIP with existing EIP to allow incoming NAT	
+		# Get the instance ID
+		$instanceId = ((Get-CFNStack -StackName $NATStackName).Outputs | ? {$_.OutputKey -like "InstanceId"}).OutputValue
+		
+		if ($instanceId) {
+			# Associate the EIP
+			Register-EC2Address -InstanceId $instanceId -PublicIp 
+		
+			# Delete the temporary EIP
+			$PublicIP = ((Get-CFNStack -StackName $NATStackName).Outputs | ? {$_.OutputKey -like "PublicIP"}).OutputValue
+		
+			Remove-EC2Address -AllocationId (Get-EC2Address -PublicIps $PublicIP).AllocationId -Force
+		
+			# Update the routing table
+			set-ec2route -routetableid $PrivateRouteTable -DestinationCidrBlock "0.0.0.0/0" -InstanceId $instanceId
+		} else {
+		   Throw "Error - the Stack doesn't seem to exist or doesn't contain an InstanceId!"
 		}
-		Write-Host "Stack created"
-
-	# Replace EIP with existing EIP to allow incoming NAT	
-	# Get the instance ID
-	$instanceId = ((Get-CFNStack -StackName $NATStackName).Outputs | ? {$_.OutputKey -like "InstanceId"}).OutputValue
-
-	# Associate the EIP
-	Register-EC2Address -InstanceId $instanceId -PublicIp 
-
-	# Delete the temporary EIP
-	$PublicIP = ((Get-CFNStack -StackName $NATStackName).Outputs | ? {$_.OutputKey -like "PublicIP"}).OutputValue
-
-	Remove-EC2Address -AllocationId (Get-EC2Address -PublicIps $PublicIP).AllocationId -Force
-
-	# Update the routing table
-	set-ec2route -routetableid $PrivateRouteTable -DestinationCidrBlock "0.0.0.0/0" -InstanceId $instanceId
+	}
 } 
 
 
