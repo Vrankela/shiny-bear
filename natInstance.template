@@ -6,16 +6,16 @@
   "Parameters" : {
     "VpcCidr": {
       "Description" : "CIDR that can access this instance",
-      "Type": "string",
+      "Type": "String",
       "Default" : "172.16.0.0/16",
       "ConstraintDescription" : "must be a CIDR block like 172.16.0.0/16."
 
     },
     "VPC" : {
       "Description" : "VPC ID in which to create security group",
-      "Type": "string",
+      "Type": "String",
       "ConstraintDescription" : "must be the ID of an existing VPC."
-    }
+    },
     "KeyName": {
       "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instance",
       "Type": "AWS::EC2::KeyPair::KeyName",
@@ -44,7 +44,6 @@
     "ForwardPort" : {
 	  "Description" : "The port that should be NATed",
 	  "Type": "String",
-	  "Default": "22",
 	  "ConstraintDescription" : "must be a port"
 	},
     "ForwardHost" : {
@@ -55,14 +54,7 @@
     "SSHPort" : {
 	  "Description" : "The port to run the ssh server on",
 	  "Type": "String",
-          "Default" : "5022"
 	  "ConstraintDescription" : "must be a port not in use"
-	},
-	
-    "SecurityGroup" : {
-	  "Description" : "The security group ID that the instance will be created in",
-	  "Type": "String",
-	  "ConstraintDescription": "must be the id of an existing security group"
 	}
   },
 
@@ -122,22 +114,12 @@
   },
 
   "Resources" : {
-	"InstanceEIP": {
-		"Type": "AWS::EC2::EIP",
-		"Properties": {
-			"Domain": "vpc",
-			"InstanceId": {
-				"Ref": "NATInstance"
-			}
-		}
-	},
     "NATInstance" : {
       "Type" : "AWS::EC2::Instance",
       "Properties" : {
         "InstanceType" : { "Ref" : "InstanceType" },
-        "SecurityGroupIds" : [ { "Ref" : "SecurityGroup" } ],
-	"SubnetId": { "Ref" : "InstanceSubnet" },
-	"IamInstanceProfile" : { "Ref" : "NATRoleProfile" },
+        "SecurityGroupIds" : [ { "Ref" : "NATSecurityGroup" } ],
+		"SubnetId": { "Ref" : "InstanceSubnet" },
         "KeyName" : { "Ref" : "KeyName" },
 		"Tags"         : [
                     {
@@ -164,20 +146,28 @@
 				"net.ipv4.ip_forward = 1\n",
 				"net.ipv4.conf.eth0.send_redirects = 0\n",
 				"EOF\n",
-
+				"# If there's a ForwardHost specified, add DNAT\n",
+				"if [ -n \"",
+				{ "Ref" : "ForwardHost"},
+				"\" ]; then \n",
 				"/sbin/iptables -t nat -A PREROUTING -p tcp --dport ",
 				{ "Ref" : "ForwardPort" },
 				" -j DNAT --to-destination ",
 				{ "Ref" : "ForwardHost" },
 				"\n",
+				"fi\n",
 				"/sbin/iptables-save > /etc/sysconfig/iptables\n",
+				"# If there's an SSHPort specified, modify SSH\n",
+				"if [ -n \"",
+				{ "Ref" : "SSHPort"},
+				" \" ]; then \n",
 				"#Change ssh port\n",
 				"cat <<EOF >> /etc/ssh/sshd_config \n",
 				"port ",
 				{ "Ref" : "SSHPort" },
 				"EOF\n",
 				"service sshd restart\n",
-				
+				"fi\n",
 				"\n",
 				"\n"]]
 				
