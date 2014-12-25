@@ -18,7 +18,7 @@ URL of a compatible Cloudformation template.
 
 .EXAMPLE
 Initialize-AWSDefaults
-Replace-NAT -NatTemplateURL https://s3-eu-west-1.amazonaws.com/johankritzinger-cfn-templates/templates/natInstance.template -SubnetID subnet-c62b2a80
+./Replace-NAT.ps1 -NatTemplateURL https://s3-eu-west-1.amazonaws.com/johankritzinger-cfn-templates/templates/natInstance.template
 
 
 .NOTES
@@ -31,35 +31,36 @@ Ensure you have the correct rights.
 param (
     [parameter(Mandatory=$true,ValueFromPipeline=$true)]
     [string]$NATtemplateURL,
-    [parameter(Mandatory=$true,ValueFromPipeline=$true)]
+    
     [string]$SubnetID,
     [string]$ForwardHost,
     [string]$NATStackName = "NATInstance",
-    
     [string]$PublicIP,
     [string]$PrivateRouteTable,
-                           
     [string]$KeyName,
-    
-
     [string]$EnvType = "Prod",
     [string]$InstanceType = "t2.micro",
     [string]$SSHPort,
     [int]$ForwardPort,
     [string]$VPC,
     [switch]$NoRouteUpdate,
-    [switch]$RouteUpdateOnly
-
+    [switch]$RouteUpdateOnly,
+    [switch]$Force
 )
 BEGIN {}
 PROCESS {
     # Try to guess reasonable values if not provided
+    if (!$SubnetID) {
+        $SubnetID = (Get-EC2Subnet | ? {$_.MapPublicIpOnLaunch -eq $True} | select -First 1).SubnetId
+        "Guessing SubnetId: $SubnetID"
+    }
    
     if (!$KeyName) {
         # If there's only one, use that
         $KeyPair = Get-EC2KeyPair
         if ($KeyPair.Length -eq 1) {
             $KeyName = $KeyPair.KeyName
+            "Guessing key pair: $KeyName"
         } else {
           if ($KeyPair.Length -eq 0) {
              Write-Host "You do not have a Key Pair in your account, so won't be able to access the instance" -ForegroundColor Red 
@@ -68,16 +69,18 @@ PROCESS {
           }
         }
     }
+    # Check if there's an existing NAT instance
+    $oldStack = Get-CFNStack | ? {($_.StackName -like "NAT*")}
+    $oldIntanceId = ($oldStack.Outputs | ? {($_.OutputKey -eq "InstanceId")}).OutputValue
+
     if (!$PublicIP) {
-        # If there isn't one, it won't be needed
-
-        # If there is one assigned to a NAT...., use that
-
+        # Use the one assigned to the old instance, if it has one
+        $PublicIP = (Get-EC2Address | ? { $_.InstanceId -eq $oldIntanceId}).PublicIp
+        "Guessing public IP: $PublicIP"
     }
     
     if (!$PrivateRouteTable) {
       # Find a routing table with no route via igw
-      "Guessing Route Table"
       $rtt = Get-EC2RouteTable
       $mnrtt = $rtt | ? {$_.Routes.GatewayID -like "igw*" }
       [string[]]$PrivateRouteTable = ($rtt | ? {$_.RouteTableId -ne $mnrtt.RouteTableId }).RouteTableId
@@ -85,9 +88,11 @@ PROCESS {
         Throw "More than one possible PrivateRouteTable, please specify"
       }
       [string]$PrivateRouteTable = $PrivateRouteTable
+      "Guessing Route Table: $PrivateRouteTable"
     }
 
     if (!$VPC) {
+        "Checking VPC"
         [string[]]$VPC = (Get-EC2Vpc).VpcId
         if ($VPC.Length -ne 1 ) {
             Throw "VPC not specified and you have more than one"
@@ -100,6 +105,7 @@ PROCESS {
 	   # Check if the instance exists - can't create another
 	   if (Get-CFNStack | ? { $_.StackName -eq $NATStackName} ) { $NATStackName = $NATStackName + "2" }
 
+       "Creating Stack"
 	   New-CFNStack -StackName $NATStackName -TemplateURL $NATtemplateURL -Parameters @(
 		    @{ ParameterKey="ServerName";ParameterValue=$NATStackName },
 		    @{ ParameterKey="InstanceType";ParameterValue=$InstanceType },
@@ -110,10 +116,7 @@ PROCESS {
 		    @{ ParameterKey="VPC";ParameterValue=$VPC },
 		    @{ ParameterKey="ForwardPort";ParameterValue=$ForwardPort },
 		    @{ ParameterKey="SSHPort";ParameterValue=$SSHPort }
-
-		    
 		) -Tags @( @{Key="EnvType";Value=$EnvType } )
-
 
 		# Wait on completion
 	   while ((Get-CFNStack -StackName $NATStackName).StackStatus -notlike "CREATE_COMPLETE") {
@@ -138,8 +141,12 @@ PROCESS {
 		} else {
 		   Throw "Error - the Stack doesn't seem to exist or doesn't contain an InstanceId!"
 		}
+        if ( $oldStack ) {
+            if ($Force -or (Read-Host "Do you want to delete the old instance? (Y/n)" -like "Y*")) {
+                "Deleting old stack"
+                Remove-CFNStack -StackName $oldStack.StackName -Force
+            }
+        }
 	}
 } 
-
-
 END {}
