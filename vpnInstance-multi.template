@@ -1,0 +1,325 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "VPN instance to provide access for instances in private subnets to private networks, where correctly configured VPN endpoints exists.  It retrieves VPN configuration files from an S3 storage bucket, allowing the ability to set up multiple VPN connections.  It will only start working once EIP is assigned and routing tables are changed.",
+
+  "Parameters" : {
+    "KeyName": {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription" : "must be the name of an existing EC2 KeyPair."
+    },
+
+    "InstanceType" : {
+      "Description" : "VPN EC2 instance type",
+      "Type" : "String",
+      "Default" : "t2.micro",
+      "AllowedValues" : [ "t1.micro", "t2.micro", "t2.small", "t2.medium", "m1.small", "m1.medium", "m1.large", "m1.xlarge", "m2.xlarge", "m2.2xlarge", "m2.4xlarge", "m3.medium", "m3.large", "m3.xlarge", "m3.2xlarge", "c1.medium", "c1.xlarge", "c3.large", "c3.xlarge", "c3.2xlarge", "c3.4xlarge", "c3.8xlarge", "g2.2xlarge", "r3.large", "r3.xlarge", "r3.2xlarge", "r3.4xlarge", "r3.8xlarge", "i2.xlarge", "i2.2xlarge", "i2.4xlarge", "i2.8xlarge", "hi1.4xlarge", "hs1.8xlarge", "cr1.8xlarge", "cc2.8xlarge", "cg1.4xlarge"],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    },
+	"ServerName" : {
+	  "Description" : "Name to give the new VPN server",
+	  "Type": "String",
+	  "Default": "VPNInstance",
+	  "ConstraintDescription": "Server name tag"
+	},
+    "InstanceSubnet" : {
+	  "Description" : "The subnet ID that the instance will be created in",
+	  "Type": "String",
+	  "ConstraintDescription" : "must be the subnet id of an existing subnet"
+	},
+    "SourceBucket" : {
+	  "Description" : "S3 bucket containing source files",
+	  "Type": "String",
+	  "ConstraintDescription" : "must be an existing S3 bucket block"
+	},
+	
+    "SourceFilesKey" : {
+	  "Description" : "Key (folder/filename.zip) of source files",
+	  "Type": "String",
+	  "ConstraintDescription" : "e.g. 'files/ipsec.d.zip' - Files can be in zip, tar or tar.gz formats and will be extracted to /etc/ipsec.d/"
+	}
+  },
+
+  "Mappings" : {
+    "AWSInstanceType2Arch" : {
+      "t1.micro"    : { "Arch" : "PV64"   },
+      "t2.micro"    : { "Arch" : "HVM64"  },
+      "t2.small"    : { "Arch" : "HVM64"  },
+      "t2.medium"   : { "Arch" : "HVM64"  },
+      "m1.small"    : { "Arch" : "PV64"   },
+      "m1.medium"   : { "Arch" : "PV64"   },
+      "m1.large"    : { "Arch" : "PV64"   },
+      "m1.xlarge"   : { "Arch" : "PV64"   },
+      "m2.xlarge"   : { "Arch" : "PV64"   },
+      "m2.2xlarge"  : { "Arch" : "PV64"   },
+      "m2.4xlarge"  : { "Arch" : "PV64"   },
+      "m3.medium"   : { "Arch" : "HVM64"  },
+      "m3.large"    : { "Arch" : "HVM64"  },
+      "m3.xlarge"   : { "Arch" : "HVM64"  },
+      "m3.2xlarge"  : { "Arch" : "HVM64"  },
+      "c1.medium"   : { "Arch" : "PV64"   },
+      "c1.xlarge"   : { "Arch" : "PV64"   },
+      "c3.large"    : { "Arch" : "HVM64"  },
+      "c3.xlarge"   : { "Arch" : "HVM64"  },
+      "c3.2xlarge"  : { "Arch" : "HVM64"  },
+      "c3.4xlarge"  : { "Arch" : "HVM64"  },
+      "c3.8xlarge"  : { "Arch" : "HVM64"  },
+      "g2.2xlarge"  : { "Arch" : "HVMG2"  },
+      "r3.large"    : { "Arch" : "HVM64"  },
+      "r3.xlarge"   : { "Arch" : "HVM64"  },
+      "r3.2xlarge"  : { "Arch" : "HVM64"  },
+      "r3.4xlarge"  : { "Arch" : "HVM64"  },
+      "r3.8xlarge"  : { "Arch" : "HVM64"  },
+      "i2.xlarge"   : { "Arch" : "HVM64"  },
+      "i2.2xlarge"  : { "Arch" : "HVM64"  },
+      "i2.4xlarge"  : { "Arch" : "HVM64"  },
+      "i2.8xlarge"  : { "Arch" : "HVM64"  },
+      "hi1.4xlarge" : { "Arch" : "HVM64"  },
+      "hs1.8xlarge" : { "Arch" : "HVM64"  },
+      "cr1.8xlarge" : { "Arch" : "HVM64"  },
+      "cc2.8xlarge" : { "Arch" : "HVM64"  }
+    },
+
+    "AWSRegionArch2AMI" : {
+      "us-east-1"      : { "PV64" : "ami-50842d38", "HVM64" : "ami-08842d60", "HVMG2" : "ami-3a329952"  },
+      "us-west-2"      : { "PV64" : "ami-af86c69f", "HVM64" : "ami-8786c6b7", "HVMG2" : "ami-47296a77"  },
+      "us-west-1"      : { "PV64" : "ami-c7a8a182", "HVM64" : "ami-cfa8a18a", "HVMG2" : "ami-331b1376"  },
+      "eu-west-1"      : { "PV64" : "ami-aa8f28dd", "HVM64" : "ami-748e2903", "HVMG2" : "ami-00913777"  },
+      "ap-southeast-1" : { "PV64" : "ami-20e1c572", "HVM64" : "ami-d6e1c584", "HVMG2" : "ami-fabe9aa8"  },
+      "ap-northeast-1" : { "PV64" : "ami-21072820", "HVM64" : "ami-35072834", "HVMG2" : "ami-5dd1ff5c"  },
+      "ap-southeast-2" : { "PV64" : "ami-8b4724b1", "HVM64" : "ami-fd4724c7", "HVMG2" : "ami-e98ae9d3"  },
+      "sa-east-1"      : { "PV64" : "ami-9d6cc680", "HVM64" : "ami-956cc688", "HVMG2" : "NOT_SUPPORTED" },
+      "cn-north-1"     : { "PV64" : "ami-a857c591", "HVM64" : "ami-ac57c595", "HVMG2" : "NOT_SUPPORTED" },
+      "eu-central-1"   : { "PV64" : "ami-a03503bd", "HVM64" : "ami-b43503a9", "HVMG2" : "ami-b03503ad"  }
+    }
+
+  },
+
+  "Resources" : {
+	"VPNRole": {
+       "Type": "AWS::IAM::Role",
+       "Properties": {
+          "AssumeRolePolicyDocument": {
+             "Statement": [ {
+                "Effect": "Allow",
+                "Principal": {
+                   "Service": [ "ec2.amazonaws.com" ]
+                },
+                "Action": [ "sts:AssumeRole" ]
+             } ]
+          },
+          "Path": "/",
+          "Policies": [ {
+             "PolicyName": "VPN_Takeover",
+             "PolicyDocument": {
+                "Statement": [ 
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:ListAllMyBuckets"
+					 ],
+					 "Resource":"arn:aws:s3:::*"
+				  },
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:ListBucket",
+						"s3:GetBucketLocation"
+					 ],
+					 "Resource":"arn:aws:s3:::*"
+				  },
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:GetObject"
+					 ],
+					 "Resource":  { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "SourceBucket"} ,"/*"]]}
+				  }
+			]
+             }
+             } ]
+          }
+    },
+    "VPNRoleProfile": {
+       "Type": "AWS::IAM::InstanceProfile",
+       "Properties": {
+          "Path": "/",
+          "Roles": [ {
+             "Ref": "VPNRole"
+          } ]
+       }
+    },
+    "VPNInstance" : {
+      "Type" : "AWS::EC2::Instance",
+	  "Description" : "Instance of linux running OpenSWAN",
+      "Metadata" : {
+        "Comment1" : "Configure the bootstrap helpers to install Openswan",
+
+	"AWS::CloudFormation::Authentication": {
+			"S3Credentials": {
+				"type": "S3",
+				"roleName": { "Ref" : "VPNRole"},
+               "buckets" : [{ "Ref": "SourceBucket" }]
+			}
+		},
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "InstallAndRun" : [ "Install", "Configure" ]
+          },
+
+          "Install" : {
+            "packages" : {
+              "yum" : {
+                "mysql"        : [],
+                "openswan"    : []
+              }
+            },
+			"sources" : {
+				"/etc/ipsec.d" :  { "Fn::Join" : ["", ["https://s3-eu-west-1.amazonaws.com/",
+					{ "Ref" : "SourceBucket" },
+					"/",
+					{ "Ref" : "SourceFilesKey" }
+				]]}
+			},
+
+            "files" : {
+            "/etc/sysctl.d/nat.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  		"net.ipv4.ip_forward = 1\n",
+						"net.ipv4.conf.eth0.send_redirects = 0\n"
+                  ]]},
+                "mode"  : "000600",
+                "owner" : "root",
+                "group" : "root"
+              },
+              "/etc/cfn/cfn-hup.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  "[main]\n",
+                  "stack=", { "Ref" : "AWS::StackId" }, "\n",
+                  "region=", { "Ref" : "AWS::Region" }, "\n"
+                ]]},
+                "mode"    : "000400",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/etc/cfn/hooks.d/cfn-auto-reloader.conf" : {
+                "content": { "Fn::Join" : ["", [
+                  "[cfn-auto-reloader-hook]\n",
+                  "triggers=post.update\n",
+                  "path=Resources.VPNInstance.Metadata.AWS::CloudFormation::Init\n",
+                  "action=/opt/aws/bin/cfn-init -v ",
+                  "         --stack ", { "Ref" : "AWS::StackName" },
+                  "         --resource VPNInstance ",
+                  "         --configsets InstallAndRun ",
+                  "         --region ", { "Ref" : "AWS::Region" }, "\n",
+                  "runas=root\n"
+                ]]}
+              }
+            },
+
+            "services" : {
+              "sysvinit" : {  
+                "ipsec"  : { "enabled" : "true", "ensureRunning" : "true" },
+                "cfn-hup" : { "enabled" : "true", "ensureRunning" : "true",
+                              "files" : ["/etc/cfn/cfn-hup.conf", "/etc/cfn/hooks.d/cfn-auto-reloader.conf"]}
+              }
+            }
+          },
+          "Configure" : {
+            "commands" : {
+              "00_modify_ipsec_conf" : {
+                "command" : { "Fn::Join" : ["", [				
+				  "echo \"include /etc/ipsec.d/*.conf\" >> /etc/ipsec.conf\n"
+				]]}
+              },
+              "01_add_ipsec_tunnels" : {
+                "command" : { "Fn::Join" : ["", [				
+				  "chmod root:root /etc/ipsec.d/*\n",
+				  "chmod 0600 /etc/ipsec.d/*\n",
+				  "service ipsec restart\n"
+				]]}
+              },
+              "02_config_ip_forwarding_and_redeirects" : {
+                "command" : { "Fn::Join" : ["", ["echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n"]]}
+              }
+            }
+          }
+        }
+      },
+      "Properties" : {
+        "InstanceType" : { "Ref" : "InstanceType" },
+        "SecurityGroupIds" : [ { "Ref" : "VPNSecurityGroup" } ],
+		"SubnetId": { "Ref" : "InstanceSubnet" },
+        "KeyName" : { "Ref" : "KeyName" },
+		"Tags"         : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Ref" : "ServerName" }
+                    }
+                ],
+		"SourceDestCheck": "false",
+		"IamInstanceProfile" : { "Ref" : "VPNRoleProfile" },
+        "ImageId" : { "Fn::FindInMap" : [ "AWSRegionArch2AMI", { "Ref" : "AWS::Region" },
+                          { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
+		"UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash -xe\n",
+          "yum update -y aws-cfn-bootstrap\n",
+          
+          "# Install the files and packages from the metadata\n",
+          "/opt/aws/bin/cfn-init ",
+          "         --stack ", { "Ref" : "AWS::StackName" },
+          "         --resource VPNInstance ",
+          "         --configsets InstallAndRun ",
+          "         --region ", { "Ref" : "AWS::Region" }, "\n",
+		  
+             "# Signal the status from cfn-init\n",
+             "/opt/aws/bin/cfn-signal -e $? ",
+             "         --stack ", { "Ref" : "AWS::StackName" },
+             "         --resource VPNInstance ",
+             "         --region ", { "Ref" : "AWS::Region" }, "\n"
+		]]}}
+	  },
+      "CreationPolicy" : {
+        "ResourceSignal" : {
+          "Timeout" : "PT20M"
+        }
+      }
+    },
+    "VPNSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Rules for allowing access to HA Nodes",
+        "VpcId" : { "Ref" : "VPC" },
+        "SecurityGroupIngress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : { "Ref" : "VpcCidr" },
+	   "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : { "Ref" : "PrivateCIDR" } } ],
+        "SecurityGroupEgress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : { "Ref" : "VpcCidr" },
+	    "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : { "Ref" : "PrivateCIDR" } } ]
+      }
+    }
+  },
+
+  "Outputs" : {
+    "InstanceId" : {
+      "Description" : "InstanceId of the newly created EC2 instance",
+      "Value" : { "Ref" : "VPNInstance" }
+    },
+    "AZ" : {
+      "Description" : "Availability Zone of the newly created EC2 instance",
+      "Value" : { "Fn::GetAtt" : [ "VPNInstance", "AvailabilityZone" ] }
+    },
+    "PrivateIP" : {
+      "Description" : "Private IP address of the newly created EC2 instance",
+      "Value" : { "Fn::GetAtt" : [ "VPNInstance", "PrivateIp" ] }
+    },
+	"PublicIP" : {
+      "Description" : "Public IP address of the newly created EC2 instance",
+      "Value" : { "Fn::GetAtt" : [ "VPNInstance", "PublicIp" ] }
+    }
+
+  }
+
+}
