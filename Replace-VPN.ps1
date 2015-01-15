@@ -17,7 +17,8 @@ URL of a compatible Cloudformation template.
 
 .EXAMPLE
 Initialize-AWSDefaults
-./Replace-VPN.ps1 -VPNTemplateURL https://raw.githubusercontent.com/johankritzinger/shiny-bear/master/vpnInstance.template
+./Replace-VPN.ps1 -VPNTemplateURL https://raw.githubusercontent.com/johankritzinger/shiny-bear/master/vpnInstance.template -PrivateCIDR "172.16.150.0/24" -PrivateVPNIP "46.208.107.1" -PSK "kdiadnhfasd7jegHD8ehgHd83jmd733H8"
+    -
 
 
 .NOTES
@@ -30,17 +31,23 @@ Ensure you have the correct rights.
 param (
     [parameter(Mandatory=$true,ValueFromPipeline=$true)]
     [string]$VPNtemplateURL,
+
+    [parameter(Mandatory=$true,ValueFromPipeline=$true)]
+    [string]$PrivateCIDR,
     
+    [parameter(Mandatory=$true,ValueFromPipeline=$true)]
+    [string]$PrivateVPNIP,
+
+    [parameter(Mandatory=$true,ValueFromPipeline=$true)]
+    [string]$PSK,
+
     [string]$SubnetID,
-    [string]$ForwardHost,
+    [string]$ExternalIP,
     [string]$ServerName = "VPNInstance",
-    [string]$PublicIP,
     [string]$PrivateRouteTable,
     [string]$KeyName,
     [string]$EnvType = "Prod",
     [string]$InstanceType = "t2.micro",
-    [string]$SSHPort,
-    [int]$ForwardPort,
     [string]$VPC,
     [switch]$NoRouteUpdate,
     [switch]$RouteUpdateOnly,
@@ -72,16 +79,16 @@ PROCESS {
     $oldStack = Get-CFNStack | ? {($_.StackName -like "VPN*")}
     $oldIntanceId = ($oldStack.Outputs | ? {($_.OutputKey -eq "InstanceId")}).OutputValue
 
-    if (!$PublicIP) {
+    if (!$ExternalIP) {
         # Use the one assigned to the old instance, if it has one
-        $PublicIP = (Get-EC2Address | ? { $_.InstanceId -eq $oldIntanceId}).PublicIp
-	if (!$PublicIP) {
-	  "No suitable public IP, creating one"
-	  $publicIP = (New-EC2-Address).PublicIp
-	} else {
-          "Guessing public IP: $PublicIP"
-	}
+        $ExternalIP = (Get-EC2Address | ? { $_.InstanceId -eq $oldIntanceId}).PublicIp
     }
+	if (!$ExternalIP) {
+	  "No suitable public IP, creating one"
+	  $ExternalIP = (New-EC2Address).PublicIp
+	} else {
+      "Guessing public IP: $ExternalIP"
+	}
     
     if (!$PrivateRouteTable) {
       # Find a routing table with no route via igw
@@ -118,8 +125,10 @@ PROCESS {
 		    @{ ParameterKey="InstanceSubnet";ParameterValue=$SubnetID },
 		    @{ ParameterKey="VpcCidr";ParameterValue=$VpcCidr },
 		    @{ ParameterKey="VPC";ParameterValue=$VPC },
-		    @{ ParameterKey="ForwardPort";ParameterValue=$ForwardPort },
-		    @{ ParameterKey="SSHPort";ParameterValue=$SSHPort }
+		    @{ ParameterKey="PrivateCIDR";ParameterValue=$PrivateCIDR },
+		    @{ ParameterKey="PrivateVPNIP";ParameterValue=$PrivateVPNIP },
+            @{ ParameterKey="PSK";ParameterValue=$PSK },
+		    @{ ParameterKey="ExternalIP";ParameterValue=$ExternalIP }
 		) -Tags @( @{Key="EnvType";Value=$EnvType } )
 
 		# Wait on completion
@@ -136,9 +145,9 @@ PROCESS {
 		[string]$instanceId = ((Get-CFNStack -StackName $ServerName).Outputs | ? {$_.OutputKey -like "InstanceId"}).OutputValue
 		
 		if ($instanceId) {
-            if ($PublicIP) {
+            if ($ExternalIP) {
     			# Associate the EIP
-	    		Register-EC2Address -InstanceId $instanceId -PublicIp $PublicIP
+	    		Register-EC2Address -InstanceId $instanceId -PublicIp $ExternalIP
 		    }
 			# Update the routing table
 			set-ec2route -routetableid $PrivateRouteTable -DestiVPNionCidrBlock "0.0.0.0/0" -InstanceId $instanceId
