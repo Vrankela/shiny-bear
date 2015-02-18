@@ -17,9 +17,8 @@ URL of a compatible Cloudformation template.
 
 .EXAMPLE
 Initialize-AWSDefaults
-./Replace-VPN.ps1 -VPNTemplateURL https://raw.githubusercontent.com/johankritzinger/shiny-bear/master/vpnInstance.template -PrivateCIDR "172.16.150.0/24" -PrivateVPNIP "46.208.107.1" -PSK "kdiadnhfasd7jegHD8ehgHd83jmd733H8"
-    -
-
+./Replace-VPN.ps1 -VPNTemplateURL https://s3-eu-west-1.amazonaws.com/johankritzinger-cfn-templates/templates/vpnInstance.template -PrivateCIDR "172.16.150.0/24" -PrivateVPNIP "46.208.107.1" -PSK "kdiadnhfasd7jegHD8ehgHd83jmd733H8"
+ 
 
 .NOTES
 
@@ -121,9 +120,8 @@ PROCESS {
 		    @{ ParameterKey="ServerName";ParameterValue=$ServerName },
 		    @{ ParameterKey="InstanceType";ParameterValue=$InstanceType },
 		    @{ ParameterKey="KeyName";ParameterValue=$KeyName },
-		    @{ ParameterKey="ForwardHost";ParameterValue=$ForwardHost },
-		    @{ ParameterKey="InstanceSubnet";ParameterValue=$SubnetID },
-		    @{ ParameterKey="VpcCidr";ParameterValue=$VpcCidr },
+		    @{ ParameterKey="SubnetID";ParameterValue=$SubnetID },
+		    @{ ParameterKey="VPCCIDR";ParameterValue=$VpcCidr },
 		    @{ ParameterKey="VPC";ParameterValue=$VPC },
 		    @{ ParameterKey="PrivateCIDR";ParameterValue=$PrivateCIDR },
 		    @{ ParameterKey="PrivateVPNIP";ParameterValue=$PrivateVPNIP },
@@ -150,12 +148,12 @@ PROCESS {
 	    		Register-EC2Address -InstanceId $instanceId -PublicIp $ExternalIP
 		    }
 			# Update the routing table
-			set-ec2route -routetableid $PrivateRouteTable -DestiVPNionCidrBlock "0.0.0.0/0" -InstanceId $instanceId
+			set-ec2route -routetableid $PrivateRouteTable -DestinationCidrBlock "0.0.0.0/0" -InstanceId $instanceId
 		} else {
 		   Throw "Error - the Stack doesn't seem to exist or doesn't contain an InstanceId!"
 		}
         if ( $oldStack ) {
-            if ($Force -or (Read-Host "Do you want to delete the old instance? (Y/n)" -like "Y*")) {
+            if ($Force -or (Read-Host "Do you want to delete the old instance? (Y/n)") -like "Y*") {
                 "Deleting old stack"
                 Remove-CFNStack -StackName $oldStack.StackName -Force
             }

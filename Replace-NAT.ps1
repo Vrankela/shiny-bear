@@ -18,7 +18,7 @@ URL of a compatible Cloudformation template.
 
 .EXAMPLE
 Initialize-AWSDefaults
-./Replace-NAT.ps1 -NatTemplateURL https://raw.githubusercontent.com/johankritzinger/shiny-bear/master/natInstance.template
+./Replace-NAT.ps1 -NatTemplateURL https://s3-eu-west-1.amazonaws.com/johankritzinger-cfn-templates/templates/natInstance.template
 
 
 .NOTES

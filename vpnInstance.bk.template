@@ -224,7 +224,7 @@
 				  "ipsec auto --add vpn-conn\n"
 				]]}
               },
-              "02_config_ip_forwarding_and_redeirects" : {
+              "02_config_ip_forwarding_and_redirects" : {
                 "command" : { "Fn::Join" : ["", ["echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n"]]}
               }
             }
@@ -234,15 +234,15 @@
       "Properties" : {
         "InstanceType" : { "Ref" : "InstanceType" },
         "SecurityGroupIds" : [ { "Ref" : "VPNSecurityGroup" } ],
-	"SubnetId": { "Ref" : "SubnetID" },
+	    "SubnetId": { "Ref" : "SubnetID" },
         "KeyName" : { "Ref" : "KeyName" },
-	"Tags"         : [
+		"Tags"         : [
                     {
                         "Key" : "Name",
                         "Value" : { "Ref" : "ServerName" }
                     }
                 ],
-	"SourceDestCheck": "false",
+		"SourceDestCheck": "false",
         "ImageId" : { "Fn::FindInMap" : [ "AWSRegionArch2AMI", { "Ref" : "AWS::Region" },
                           { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
 		"UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
@@ -276,11 +276,8 @@
         "VpcId" : { "Ref" : "VPC" },
         "SecurityGroupIngress" : [
            { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : { "Ref" : "VpcCidr" },
-	   "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : { "Ref" : "PrivateCIDR" },
-	   "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : { "Fn::Join" : ["", [
-         	   { "Ref" : "PrivateVPNIP" } , "/32" ]]} } ] ,
-        "SecurityGroupEgress" : [
-           { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : "0.0.0.0/0" } ]
+	         "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : { "Ref" : "PrivateCIDR" },
+			 "IpProtocol" : "-1", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"} ]
       }
     }
   },
