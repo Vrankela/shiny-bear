@@ -1,0 +1,738 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "SQL Server with standard configuration done - copyright Johan Kritzinger",
+
+  "Parameters" : {
+    "S3Bucket" : {
+	  "Description" : "Name of S3 bucket this instance has access to",
+	  "Type": "String",
+	  "Default": "sql-backup",
+	  "ConstraintDescription": "must be the name of an existing bucket"
+	},
+	"DomainAdminPassword" : {
+	  "Description" : "Password of the domain user",
+	  "Type": "String",
+	  "ConstraintDescription": "Password for domain users"
+	},
+	"OUPath" : {
+	  "Description" : "OU to join computer to" ,
+	  "Type" : "String",
+	  "ConstraintDescription" : "Full path of OU like OU=Servers,OU=Computers,DC=mydomain,DC=local"
+	}, 
+	"DomainAdminUser" : {
+	  "Description" : "Domain user to join computer to domain",
+	  "Type": "String",
+	  "Default": "AWSDirectory",
+	  "ConstraintDescription": "User name with rights to join computers to domain"
+	},
+	
+	"KeyName" : {
+      "Description" : "Name of an existing EC2 KeyPair",
+      "Type" : "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription" : "must be the name of an existing EC2 KeyPair."
+    },
+	"AZ" : {
+	  "Description" : "The Availability Zone that the instance will be created in - hard coded mapping for Redeem backend",
+	  "Type": "String",
+	  "Default": "b",
+	  "AllowedValues" : [ "a", "b", "c"],
+	  "ConstraintDescription" : "must be the subnet id of an existing subnet"
+	},
+	"SecurityGroup" : {
+	  "Description" : "The Security Group ID that the instance will be created in (default is SQL for Redeem)",
+	  "Type": "String",
+	  "ConstraintDescription": "must be the id of an existing security group"
+	},
+    "InstanceType" : {
+      "Description" : "Amazon EC2 instance type - allowed for SQL server",
+      "Type" : "String",
+      "Default" : "m3.medium",
+      "AllowedValues" : [ "t1.micro", "t2.micro", "t2.small", "t2.medium", "m1.small", "m1.medium", "m1.large", "m1.xlarge", "m2.xlarge", "m2.2xlarge", "m2.4xlarge", "m3.medium", "m3.large", "m3.xlarge", "m3.2xlarge", "c1.medium", "c1.xlarge", "c3.large", "c3.xlarge", "c3.2xlarge", "c3.4xlarge", "c3.8xlarge", "g2.2xlarge", "r3.large", "r3.xlarge", "r3.2xlarge", "r3.4xlarge", "r3.8xlarge", "i2.xlarge", "i2.2xlarge", "i2.4xlarge", "i2.8xlarge", "hi1.4xlarge", "hs1.8xlarge", "cr1.8xlarge", "cc2.8xlarge", "cg1.4xlarge"],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    },
+	"EbsOptimized" : {
+      "Description" : "Is this EBS Optimized",
+      "Type" : "String",
+      "Default" : "False",
+      "AllowedValues" : [ "True","False"],
+      "ConstraintDescription" : "True or False"
+    },
+	"VolumeType": {
+      "Description" : "VolumeType of Data drive",
+      "Type" : "String",
+      "Default" : "gp2",
+      "AllowedValues" : [ "standard","gp2","io1"],
+      "ConstraintDescription" : "SSD (gp2) or Provisioned Iops SSD (io1) - Standard is magnetic"	
+	},
+	"Iops" : {
+      "Description" : "Provisioned Iops of Data drive",
+      "Type" : "String",
+      "Default" : "3000",
+      "ConstraintDescription" : "Number corresponding to Iops"	
+	},
+    "DomainDNSName" : {
+      "Description" : "Fully qualified domain name (FQDN) of the forest root domain e.g. corp.example.com",
+      "Type" : "String",
+      "MinLength" : "3",
+      "MaxLength" : "25"
+    },
+
+    "DomainNetBIOSName" : {
+      "Description" : "NetBIOS name of the domain (upto 15 characters) for users of earlier versions of Windows e.g. CORP",
+      "Type" : "String",
+      "MinLength" : "1",
+      "MaxLength" : "15",
+      "AllowedPattern" : "[a-zA-Z0-9]+",
+      "ConstraintDescription" : "must be a valid NetBIOS name."
+    },   
+	"ServerName" : {
+	  "Description" : "Name to give the new SQL server",
+	  "Type": "String",
+	  "Default": "AWS-DBxxxxx",
+	  "ConstraintDescription": "Legal Windows computer name"
+	},
+	"DontCreateDDrive" : {
+	  "Description": "Disable creation of second volume",
+	  "Type": "String",
+	  "Default" : "False",
+	  "AllowedValues" : [ "False","True" ]
+	},
+	"ImageId" : {
+	  "Description" : "AMI Image ID to use",
+	  "Type" : "String",
+	  "ConstraintDescription": "Get from Get-EC2Image"
+	},
+	"SQLServiceAccount" : {
+	  "Description" : "SQL Service account",
+	  "Type" : "String",
+	  "ConstraintDescription": "Normally a domain user"
+	},
+	"SQLServiceAccountPw" : {
+	  "Description" : "SQL Service account password",
+	  "Type" : "String",
+	  "ConstraintDescription": "Password"
+	},
+	"S3SourceBucketName" : {
+	  "Description" : "Source bucket for required files",
+	  "Type" : "String",
+	  "ConstraintDescription": "Existing S3 bucket containing required files"
+	},
+	"DontEncryptVolume" : {
+	  "Description" : "Dont encrypt",
+	  "Type" : "String",
+	  "Default": "False",
+	  "AllowedValues" : [ "False","True" ],
+	  "ConstraintDescription": "Is the volume encrypted (not supported on t2)."
+	},
+	"SkipUpdates" : {
+	  "Description" : "Dont install windows updates",
+	  "Type" : "String",
+	  "Default": "False",
+	  "AllowedValues" : [ "False","True" ],
+	  "ConstraintDescription": "Skip doing windows updates - e.g for testing only."
+	},
+	"SQLCollation" : {
+		"Type": "String",
+		"Default": "Latin1_General_CI_AS"
+	},
+	"DDriveSize" : {
+		"Type": "String",
+		"Default": "100"
+	}
+  },
+
+  "Mappings" : {
+	"AZ2Subnet" : {
+		"a" : { "AZ" : "subnet-xxxxxxxa" },
+		"b" : { "AZ" : "subnet-xxxxxxxb" },
+		"c" : { "AZ" : "subnet-xxxxxxxc" }
+	}
+
+  },
+  "Conditions" : {
+	"CreateVolume" : {"Fn::Equals" : [{"Ref" : "DontCreateDDrive"}, "False"]},
+	"EncryptVolume" : {"Fn::Equals" : [{"Ref" : "DontCreateDDrive"}, "False"]}
+  },
+  
+  "Resources" : {    
+    "SQLInstance": {  
+      "Type" : "AWS::EC2::Instance",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {          
+          "config" : {
+            "files" : 
+			  {
+			  "C:\\Software\\Config.ps1" : {
+			    "content": { "Fn::Join" : ["", [
+				  "$ComputerName = \"",  {	"Ref" : "ServerName" },"\"\n",
+				  "$S3SourceBucketName = \"", { "Ref" : "S3SourceBucketName" } , "\"\n",
+				  "$Winver = [System.Environment]::OSVersion.Version","\n",
+				  "","\n",
+				  "netsh advfirewall firewall set rule name=\"SQL Server\" new profile=any","\n",
+				  "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force","\n",
+				  "Enable-PSRemoting -Force","\n",
+				  "$pagefile = Get-WmiObject Win32_PageFileSetting | ? { $_.Name -like 'c:*' }","\n",
+				  "if ($pagefile.InitialSize -gt 1000) {","\n",
+				  "  $computersys = Get-WmiObject Win32_ComputerSystem -EnableAllPrivileges","\n",
+				  "  $computersys.AutomaticManagedPagefile = $True","\n",
+				  "  $computersys.Put()","\n",
+				  "}","\n",
+				  "# Fetch files needed later in SQLConfig","\n",
+				  "[string[]]$SourceFiles = 'SQL-ConfigMail.ps1', 'MaintenanceSolution.sql','SQL-ScheduleMaintenance.sql', 'Backup-Upload.ps1', 'UploadBackups.xml'","\n",
+				  "foreach ($file in $SourceFiles) {","\n",
+				  "    Copy-S3Object -BucketName $S3SourceBucketName -LocalFile c:\\Software\\$file -Key scripts/$file ","\n",
+				  "}","\n",
+				  "","\n",
+				  "    if (($Winver.Major -eq 6) -and ($Winver.Minor -le 1)) {","\n",
+				  "       #Will have to set this manually - script should notify you pause","\n",
+				  "} else {","\n",
+				  "                ipmo international","\n",
+				  "                set-WinSystemLocale en-GB","\n",
+				  "                tzutil /s 'gmt standard time'","\n",
+				  "    }","\n",
+				  "","\n",
+
+				  "Restart-Computer # whether or not it's required - the template is waiting","\n"
+				]]}
+			  },
+			  "C:\\Software\\WinUpdate.ps1" : {
+			    "content": { "Fn::Join" : ["", [
+				  "if ('",
+				  {
+					"Ref" : "SkipUpdates"
+				  },
+				  "' -ne 'True') {","\n",
+				  "  $Criteria = \"IsInstalled=0 and Type='Software' and IsHidden=0\"","\n",
+				  "  $Searcher = New-Object -ComObject Microsoft.Update.Searcher","\n",
+				  "      $SearchResult = $Searcher.Search($Criteria).Updates","\n",
+				  "      if ($SearchResult.Count) {","\n",
+				  "          $Session = New-Object -ComObject Microsoft.Update.Session","\n",
+				  "          $Downloader = $Session.CreateUpdateDownloader()","\n",
+				  "          $Downloader.Updates = $SearchResult","\n",
+				  "          $Downloader.Download()","\n",
+				  "          $Installer = New-Object -ComObject Microsoft.Update.Installer","\n",
+				  "          $Installer.Updates = $SearchResult","\n",
+				  "          $Result = $Installer.Install()","\n",
+				  "      }","\n",
+				  "}","\n",
+				  "Start-Sleep -Seconds 60","\n",
+				  "Restart-Computer # whether or not it's required - the template is waiting","\n"
+				  
+				]]}
+			  },
+			  "C:\\Software\\ChangeCollation.ps1" : {
+			    "content": { "Fn::Join" : ["", [
+				  "if (Test-Path 'C:\\Program Files\\Microsoft SQL Server\\100\\Setup Bootstrap\\Release\\Setup.exe') {","\n",
+				  "    $installer = 'C:\\Program Files\\Microsoft SQL Server\\100\\Setup Bootstrap\\Release\\Setup.exe'","\n",
+				  "}","\n",
+				  "if (Test-Path 'C:\\Program Files\\Microsoft SQL Server\\100\\Setup Bootstrap\\SQLServer2008R2\\setup.exe') {","\n",
+				  "    $installer = 'C:\\Program Files\\Microsoft SQL Server\\100\\Setup Bootstrap\\SQLServer2008R2\\setup.exe'","\n",
+				  "}","\n",
+				  "if (Test-Path 'C:\\Program Files\\Microsoft SQL Server\\110\\Setup Bootstrap\\SQLServer2012\\Setup.exe') {","\n",
+				  "    $installer = 'C:\\Program Files\\Microsoft SQL Server\\110\\Setup Bootstrap\\SQLServer2012\\Setup.exe'","\n",
+				  "}","\n",
+				  "if (Test-Path 'C:\\Program Files\\Microsoft SQL Server\\120\\Setup Bootstrap\\SQLServer2014\\Setup.exe') {","\n",
+				  "    $installer = 'C:\\Program Files\\Microsoft SQL Server\\120\\Setup Bootstrap\\SQLServer2014\\Setup.exe'","\n",
+				  "}","\n",
+				  "if ($installer) {","\n",
+				  "  & $installer /QUIET /ACTION=REBUILDDATABASE /INSTANCENAME=MSSQLSERVER /SQLSYSADMINACCOUNTS=BUILTIN\\Administrators /SAPWD=iH8dje08Jdh-djkDu7 /SQLCOLLATION=",
+				  { "Ref" : "SQLCollation" },"\n",
+				  "}","\n",
+				  "# Add to local group for Agent","\n",
+				  "$ComputerName = \"",
+				  {
+					"Ref" : "ServerName"
+				  },"\"\n",
+				  "$group = (Get-CimInstance -ClassName Win32_Group -Filter \"Domain = '$ComputerName'\" | ? { $_.Name -like 'SQLServerMSSQLUser*' }).Name","\n",
+				  "if ($group) {","\n",
+				  "  net localgroup $group /add ",
+				  {
+					"Ref" : "SQLServiceAccount"
+				  },
+				  "\n",
+				  "}","\n",
+				  "$group = (Get-CimInstance -ClassName Win32_Group -Filter \"Domain = '$ComputerName'\" | ? { $_.Name -like 'SQLServerSQLAgentUser*' }).Name","\n",
+				  "if ($group) {","\n",
+				  "  net localgroup $group /add ",
+				  {
+					"Ref" : "SQLServiceAccount"
+				  },
+				  "\n",
+				  "}","\n",
+				  "","\n"
+				  
+				]]}
+			  },
+			  "C:\\Software\\SQLConfig.ps1" : {
+                "content" : { "Fn::Join" : ["", [
+				  "#Import-Module sqlps -DisableNameChecking","\n",
+				  "#if ($error) {","\n",
+				  "#   # SQL < 2012 doesn't have this as module","\n",
+				  "#   sqlps","\n",
+				  "#}","\n",
+				  "$ComputerName = \"",  {	"Ref" : "ServerName"				  },"\"\n",
+				  "$S3SourceBucketName = \"", { "Ref" : "S3SourceBucketName" } , "\"\n",
+				  "Invoke-Sqlcmd -ServerInstance $ComputerName -Query \"USE [master]","\n",
+				  "     GO","\n",
+                  "     EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', ","\n",
+                  "                     N'Software\\Microsoft\\MSSQLServer\\MSSQLServer', ","\n",
+                  "                     N'LoginMode', REG_DWORD, 2","\n",
+                  "     GO\"","\n",
+                  "     $TotalMem = ((get-wmiobject -class 'win32_physicalmemory' -namespace 'root\\CIMV2').Capacity | Measure-Object -sum).Sum/1024/1024","\n",
+                  "        # Calculate SQL Mem requirements from http://www.sqlskills.com/blogs/jonathan/how-much-memory-does-my-sql-server-actually-need/","\n",
+                  "        $MemForOS = 1024","\n",
+                  "        if ($TotalMem -gt 4096) {","\n",
+                  "            if ($TotalMem -le (1024*16)) {","\n",
+                  "                $MemForOS = $MemForOS + (($Totalmem - 4096) / 4)","\n",
+                  "            } else {","\n",
+                  "                $MemForOS = $MemForOS + 1024 + ($TotalMem - (1024*16))/8","\n",
+                  "            }","\n",
+                  "        }","\n",
+                  "        $MemForSQL = $TotalMem - $MemForOS","\n",
+
+                  "        # Update SQL setting, from http://msdn.microsoft.com/en-us/library/ms178067.aspx","\n",
+                  "        \n",
+                  "        Invoke-Sqlcmd -ServerInstance $ComputerName -Query  \"sp_configure 'show advanced options', 1;","\n",
+                  "                GO","\n",
+                  "                RECONFIGURE;","\n",
+                  "                GO","\n",
+                  "                sp_configure 'max server memory', $MemForSQL;","\n",
+                  "                GO","\n",
+                  "                RECONFIGURE;","\n",
+                  "                GO\"","\n",
+ 
+                  "        # Turn on backup compression (http://technet.microsoft.com/en-us/library/bb677250%28v=sql.105%29.aspx)","\n",
+				  "'Turn on backup compression'","\n",
+				  "$SQLVersion = (Invoke-Sqlcmd -Query 'SELECT @@VERSION').Column1","\n",
+				  "if ($SQLVersion -notlike '*2008 (SP3)*') {","\n",
+                  "            Invoke-Sqlcmd -ServerInstance $ComputerName -Query \"",
+                  "               USE master;","\n",
+                  "                GO","\n",
+                  "                EXEC sp_configure 'backup compression default', '1';","\n",
+                  "                RECONFIGURE WITH OVERRIDE;\"","\n",
+				  "}","\n",
+				  "'rename SQL server'","\n",
+        	      "    $SQLserverName =  (Invoke-Sqlcmd -Query  'select @@ServerName').Column1","\n",
+
+				  "        Invoke-Sqlcmd -ServerInstance $ComputerName -Query  \"sp_dropserver '$SQLserverName'  ","\n",
+				  "            go  ","\n",
+				  "            sp_addserver '$ComputerName','local'  ","\n",
+				  "            go\"","\n",
+
+				  "        restart-service MSSQLSERVER -force ","\n",
+
+				  "        # Check if D: exists, create directories, set default data paths","\n",
+				  "        $DExists = $false","\n",
+				  "        \n",
+				  "            if (Get-PSDrive | where {$_.Name -eq 'D'} ) {","\n",
+				  "                $DExists = $true","\n",
+				  "                mkdir 'd:\\SQLBackups'","\n",
+				  "                mkdir 'd:\\SQLData'","\n",
+				  "                mkdir 'd:\\SQLLogs'","\n",
+				  "            }","\n",
+				  "            if (Get-PSDrive | where {$_.Name -eq 'E'} ) {","\n",
+				  "                mkdir 'E:\\SQLBackups'","\n",
+				  "            }","\n",
+				  "        if ($DExists) {","\n",
+				  "            while (!(invoke-sqlcmd -Query 'select 1')) { start-sleep -Seconds 5 }","\n",				  
+				  "            # Change default data locations from http://sqlandme.com/2013/03/18/sql-server-changing-default-database-location-for-server/","\n",
+				  "            Invoke-Sqlcmd -ServerInstance $ComputerName -Query \"","\n",
+				  "                USE [master]","\n",
+				  "                GO","\n",
+
+				  "                -- Change default location for data files","\n",
+				  "                EXEC   xp_instance_regwrite","\n",
+				  "                       N'HKEY_LOCAL_MACHINE',","\n",
+				  "                       N'Software\\Microsoft\\MSSQLServer\\MSSQLServer',","\n",
+				  "                       N'DefaultData',","\n",
+				  "                       REG_SZ,","\n",
+				  "                       N'D:\\SQLData'","\n",
+				  "                GO","\n",
+
+				  "                -- Change default location for log files","\n",
+				  "                EXEC   xp_instance_regwrite","\n",
+				  "                       N'HKEY_LOCAL_MACHINE',","\n",
+				  "                       N'Software\\Microsoft\\MSSQLServer\\MSSQLServer',","\n",
+				  "                       N'DefaultLog',","\n",
+				  "                       REG_SZ,","\n",
+				  "                       N'd:\\SQLLogs'","\n",
+				  "                GO","\n",
+				  "                -- Change default location for backups","\n",
+				  "                EXEC   xp_instance_regwrite","\n",
+				  "                       N'HKEY_LOCAL_MACHINE',","\n",
+				  "                       N'Software\\Microsoft\\MSSQLServer\\MSSQLServer',","\n",
+				  "                       N'BackupDirectory',","\n",
+				  "                       REG_SZ,","\n",
+				  "                       N'E:\\SQLBackups'","\n",
+				  "                GO","\n",
+				  "            \"","\n",
+				  "        }","\n",
+				  "'Change service account'","\n",
+				  "$SMOWmiserver = New-Object ('Microsoft.SqlServer.Management.Smo.Wmi.ManagedComputer') $ComputerName","\n",
+				  "$ChangeService=$SMOWmiserver.Services | where {$_.name -eq 'MSSQLSERVER'}","\n",
+				  "$ChangeService.SetServiceAccount(\"",
+				  {
+					"Ref" : "SQLServiceAccount"
+				  },"\", \"", 
+				  {
+					"Ref" : "SQLServiceAccountPw"
+				  },
+				  
+				  "\")\n",
+				  "$smo = 'Microsoft.SqlServer.Management.Smo.'","\n",
+				  "$wmi = new-object ($smo + 'Wmi.ManagedComputer').","\n",
+				  "# Enable the TCP protocol on the default instance.","\n",
+				  "$uri = \"ManagedComputer[@Name='$ComputerName']/ ServerInstance[@Name='MSSQLSERVER']/ServerProtocol[@Name='Tcp']\"","\n",
+				  "$Tcp = $wmi.GetSmoObject($uri)","\n",
+				  "$Tcp.IsEnabled = $true","\n",
+				  "$Tcp.Alter()","\n",
+				  "$ChangeService=$SMOWmiserver.Services | where {$_.name -eq 'SQLSERVERAGENT'}","\n",
+				  "$ChangeService.SetServiceAccount(\"",
+				  {
+					"Ref" : "SQLServiceAccount"
+				  },"\", \"", 
+				  {
+					"Ref" : "SQLServiceAccountPw"
+				  },
+				  
+				  "\")\n",
+				  "$ChangeService.StartMode = 'Auto'","\n",
+				  "$ChangeService.Start()","\n",
+				  "restart-service MSSQLSERVER -force","\n",
+				  "# Add tempdb files to ephemeral drives","\n",
+				  "$drives = get-psdrive -PSProvider FileSystem | ? {  'C','D','E' -notcontains $_.Name }","\n",
+				  "","\n",
+				  "$n = 1","\n",
+				  "$right = '(F)'","\n",
+				  "foreach ($drive in $drives) {","\n",
+    			  "   icacls $drive.Root /Grant ",
+				  {
+					"Ref" : "SQLServiceAccount"
+				  },
+				  ":$right","\n",
+				  "\n",
+    			  "   $n++","\n",
+				  "    $filename = $drive.Root + 'temp$n.ndf'","\n",
+				  "            while (!(invoke-sqlcmd -Query 'select 1')) { start-sleep -Seconds 5 }","\n",				  
+				  "    Invoke-Sqlcmd -Query \"","\n",
+				  "      USE master","\n",
+				  "        GO","\n",
+				  "\n",
+				  "        ALTER DATABASE TempDB ","\n",
+				  "        ADD FILE ","\n",
+				  "        (","\n",
+				  "            NAME = temp$n,","\n",
+				  "            FILENAME = '$filename',","\n",
+				  "            SIZE = 50MB,","\n",
+				  "            FILEGROWTH = 5MB","\n",
+				  "        )","\n",
+				  "        GO","\n",
+				  "    \"","\n",
+				  "}","\n",
+				  "","\n",
+				  "if (Test-Path C:\\Software\\SQL-ConfigMail.ps1) { & C:\\Software\\SQL-ConfigMail.ps1 }","\n",
+				  "if (Test-Path 'C:\\Software\\MaintenanceSolution.sql') {","\n",
+				  "  Invoke-Sqlcmd -InputFile 'C:\\Software\\MaintenanceSolution.sql'","\n",
+				  "  Invoke-Sqlcmd -InputFile 'C:\\Software\\SQL-ScheduleMaintenance.sql'","\n",
+				  "}","\n",
+				  "schtasks /create /xml C:\\software\\UploadBackups.xml /tn CopyBackups /RU System","\n",
+				  "","\n"
+		
+				 ]]}
+			  },
+			  
+              "c:\\cfn\\cfn-hup.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  "[main]\n",
+                  "stack=", { "Ref" : "AWS::StackId" }, "\n",
+                  "region=", { "Ref" : "AWS::Region" }, "\n"
+                ]]}
+              },
+
+              "c:\\cfn\\hooks.d\\cfn-auto-reloader.conf" : {
+                "content": { "Fn::Join" : ["", [
+                  "[cfn-auto-reloader-hook]\n",
+                  "triggers=post.update\n",
+                  "path=Resources.SQLInstance.Metadata.AWS::CloudFormation::Init\n",
+                  "action=cfn-init.exe",
+                  "       --stack ", { "Ref" : "AWS::StackId" },
+                  "       --resource SQLInstance",
+                  "       --region ", { "Ref" : "AWS::Region" }, "\n"
+                ]]}
+              },
+              
+              "C:\\cfn\\RunCommand.bat" : {
+                "content" : "%~1\nIF %ERRORLEVEL% GTR 10 ( exit /b 1 ) else ( exit /b 0 )"
+              }
+            },
+        
+            "commands" : {
+			  "0-Set-ExecutionPolicy" : {
+			    "command" : "powershell.exe -ExecutionPolicy Bypass -File C:\\Software\\Config.ps1",
+				"waitAfterCompletion" : "forever"
+			  },
+              "1-rename" : {
+                "command" : {
+                                    "Fn::Join" : [
+                                        "",
+                                        [
+                                            
+											"powershell.exe -Command Rename-Computer -NewName ",
+											{
+												"Ref" : "ServerName"
+											},
+											" -Restart"
+                                        ]
+                                    ]
+                                },
+                "waitAfterCompletion" : "forever"
+              },
+			  "2-join-domain"     : {
+                                "command" : {
+                                    "Fn::Join" : [
+                                        "",
+                                        [
+                                            "powershell.exe -Command \"",
+                                            "Add-Computer -DomainName ",
+                                            {
+                                                "Ref" : "DomainDNSName"
+                                            },
+                                            " -Credential ",
+                                            "(New-Object System.Management.Automation.PSCredential('",
+                                            {
+                                                "Ref" : "DomainNetBIOSName"
+                                            },
+                                            "\\",
+                                            {
+                                                "Ref" : "DomainAdminUser"
+                                            },
+                                            "', ",
+                                            "(ConvertTo-SecureString '",
+                                            {
+                                                "Ref" : "DomainAdminPassword"
+                                            },
+                                            "' -AsPlainText -Force ) ) ) ",
+											" -OUPath '",
+											{
+                                                "Ref" : "OUPath"
+                                            },
+                                            "' -Restart\""
+                                        ]
+                                    ]
+                                },
+                                "waitAfterCompletion" : "forever"
+                            },
+			  "3-ChangeCollation" : {
+				 "command" : "powershell.exe -ExecutionPolicy Bypass -File C:\\Software\\ChangeCollation.ps1"
+			  },
+			  "4-sql-config" : {
+			    "command" : "sqlps -Command \"&{C:\\Software\\SQLConfig.ps1}\""
+			  },
+			  "5-winupdate" : {
+			    "command" : "powershell.exe -ExecutionPolicy Bypass -File C:\\Software\\WinUpdate.ps1",
+				"waitAfterCompletion" : "forever"
+			  },
+			  "6-psremoting" : {
+			    "command" : "PowerShell -ExecutionPolicy Bypass -Command 'Restart-Service winrm'"
+			  },
+              "7-signal-success" : { 
+                "command" : { "Fn::Join" : ["", [ 
+                  "cfn-signal.exe -e 0 \"", { "Fn::Base64" : { "Ref" : "SQLInstanceWaitHandle" } },"\"" ]]
+                }
+              }
+            },
+            
+            "services" : {
+              "windows" : {
+                "cfn-hup" : {
+                  "enabled" : "true",
+                  "ensureRunning" : "true",
+                  "files" : ["c:\\cfn\\cfn-hup.conf", "c:\\cfn\\hooks.d\\cfn-auto-reloader.conf"]
+                }
+              }
+            }
+          }
+        }
+      },
+      
+      "Properties": {
+        "ImageId" : { "Ref" : "ImageId"},
+        "InstanceType" : { "Ref" : "InstanceType" },
+		"EbsOptimized" : { "Ref": "EbsOptimized" },
+		"IamInstanceProfile" : { "Ref" : "SQLRoleProfile" },
+		"SubnetId"   : { "Fn::FindInMap" : [ "AZ2Subnet", { "Ref" : "AZ" }, "AZ" ] },
+        "SecurityGroupIds" : [ 
+			{
+				"Ref" : "SecurityGroup" 
+			}
+		],
+        "KeyName" : { "Ref" : "KeyName" },
+		"Tags"         : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Ref" : "ServerName" }
+                    }
+                ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+            "<script>\n",
+          
+            "cfn-init.exe ", 
+            "       --stack ", { "Ref" : "AWS::StackId" }, 
+            "       --resource SQLInstance ",
+            "       --region ", { "Ref" : "AWS::Region" }, "\n",
+
+            "</script>"          
+        ]]}}        
+      }
+    },
+	 "DataVolume" : {
+	   "Type" : "AWS::EC2::Volume",
+	   "Condition" : "CreateVolume",
+	   "Properties" : {
+		  "Size" : { "Ref" : "DDriveSize" },
+		  "Encrypted" : "True",
+		  "AvailabilityZone" : { "Fn::GetAtt" : [ "SQLInstance", "AvailabilityZone" ] },
+		   "VolumeType" : "io1",
+		  "Iops" : { "Ref" : "Iops" }
+	   }
+	},
+
+	"MountPoint" : {
+	   "Type" : "AWS::EC2::VolumeAttachment",
+	   "Condition" : "CreateVolume",
+	   "Properties" : {
+		  "InstanceId" : { "Ref" : "SQLInstance" },
+		  "VolumeId"  : { "Ref" : "DataVolume" },
+		  "Device" : "xvdh"
+	   }
+	},        
+		 "DataVolume2" : {
+	   "Type" : "AWS::EC2::Volume",
+	   "Condition" : "CreateVolume",
+	   "Properties" : {
+		  "Size" : { "Ref" : "DDriveSize" },
+		  "Encrypted" : "True",
+		  "AvailabilityZone" : { "Fn::GetAtt" : [ "SQLInstance", "AvailabilityZone" ] },
+		  "VolumeType" : "gp2"
+	   }
+	},
+
+	"MountPoint2" : {
+	   "Type" : "AWS::EC2::VolumeAttachment",
+	   "Condition" : "CreateVolume",
+	   "Properties" : {
+		  "InstanceId" : { "Ref" : "SQLInstance" },
+		  "VolumeId"  : { "Ref" : "DataVolume2" },
+		  "Device" : "xvdi"
+	   }
+	},  
+    "SQLInstanceWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "SQLInstance",
+      "Properties" : {
+        "Handle" : {"Ref" : "SQLInstanceWaitHandle"},
+        "Timeout" : "3500"
+      }
+    },
+    
+    "SQLInstanceWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle"
+    },
+    "SQLRole": {
+       "Type": "AWS::IAM::Role",
+       "Properties": {
+          "AssumeRolePolicyDocument": {
+             "Statement": [ {
+                "Effect": "Allow",
+                "Principal": {
+                   "Service": [ "ec2.amazonaws.com" ]
+                },
+                "Action": [ "sts:AssumeRole" ]
+             } ]
+          },
+          "Path": "/",
+          "Policies": [ {
+             "PolicyName": "BucketAccess",
+             "PolicyDocument": {
+                "Statement":[
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:ListAllMyBuckets"
+					 ],
+					 "Resource":"arn:aws:s3:::*"
+				  },
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:ListBucket",
+						"s3:GetBucketLocation"
+					 ],
+					 "Resource":"arn:aws:s3:::*"
+				  },
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:PutObject",
+						"s3:GetObject",
+						"s3:DeleteObject"
+					 ],
+					 "Resource":"arn:aws:s3:::red-sql/*"
+				  },
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:PutObject",
+						"s3:GetObject",
+						"s3:DeleteObject"
+					 ],
+					 "Resource":"arn:aws:s3:::archived-emails/*"
+				  },
+				  {
+					 "Effect":"Allow",
+					 "Action":[
+						"s3:GetObject"
+					 ],
+					 "Resource":"arn:aws:s3:::red-heracles-sources/*"
+				  },
+				  {
+				   "Effect":"Allow",
+				   "Action":["ses:SendEmail", "ses:SendRawEmail"],
+				   "Resource":"*"
+				  },
+				  {
+					"Effect": "Allow",
+					"Action": [	"sns:Publish"],
+					"Resource": "*"
+				}
+			   ]
+             }
+             } ]
+          }
+    },
+
+    "SQLRoleProfile": {
+       "Type": "AWS::IAM::InstanceProfile",
+       "Properties": {
+          "Path": "/",
+          "Roles": [ {
+             "Ref": "SQLRole"
+          } ]
+       }
+    }   
+     
+  
+  },
+
+  "Outputs" : {
+    "SQLInstanceIP" : {
+      "Value" : { "Fn::GetAtt" : [ "SQLInstance", "PrivateIp" ] },
+      "Description" : "Private IP address of SQL Server"
+    },
+    "ComputerName" : { 
+	  "Value" : { "Ref" : "ServerName" },
+	  "Description" : "Windows name of computer"
+	}
+  }  
+}
